@@ -23,7 +23,7 @@ def main():
     # set env
     setproctitle.setproctitle(f"test{CONFIG['name']}")
     os.environ["CUDA_VISIBLE_DEVICES"] = CONFIG['gpu_id']
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda')
 
     # load data
     bundle_train_data, bundle_test_data, item_data, assist_data = \
@@ -38,8 +38,8 @@ def main():
     bi_graph = assist_data.ground_truth_b_i
 
     # metric
-    metrics = [Recall(1), NDCG(1),Precision(1), Recall(3), NDCG(3), Precision(3), Recall(5), NDCG(5), Precision(5),  Recall(10), NDCG(10), Precision(10)]
-    TARGET = 'Recall@3'
+    metrics = [Recall(5), NDCG(5),Recall(20), NDCG(20), Recall(40), NDCG(40), Recall(80), NDCG(80)]
+    TARGET = 'Recall@20'
 
     # log
     log = logger.Logger(os.path.join(
@@ -118,7 +118,7 @@ def main():
             assert model.__class__.__name__ == CONFIG['model']
 
             model.load_state_dict(torch.load(
-                os.path.join(DIR, dd['hash']+"_Recall@3.pth")))
+                os.path.join(DIR, dd['hash']+"_Recall@20.pth")))
 
             # log
             log.update_modelinfo(info, {'lr': dd['lr']}, metrics)
