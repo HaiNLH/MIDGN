@@ -61,8 +61,8 @@ def main():
     bi_graph = assist_data.ground_truth_b_i
 
     #  metric
-    metrics = [Recall(1), NDCG(1),Precision(1), Recall(3), NDCG(3), Precision(3), Recall(5), NDCG(5), Precision(5),  Recall(10), NDCG(10), Precision(10)]
-    test_metrics = [Recall(1), NDCG(1),Precision(1), Recall(3), NDCG(3), Precision(3), Recall(5), NDCG(5), Precision(5),  Recall(10), NDCG(10), Precision(10)]
+    # metrics = [Recall(1), NDCG(1),Precision(1), Recall(3), NDCG(3), Precision(3), Recall(5), NDCG(5), Precision(5),  Recall(10), NDCG(10), Precision(10)]
+    # test_metrics = [Recall(1), NDCG(1),Precision(1), Recall(3), NDCG(3), Precision(3), Recall(5), NDCG(5), Precision(5),  Recall(10), NDCG(10), Precision(10)]
     metrics = [Recall(5), NDCG(5),Precision(5), Recall(10), NDCG(10), Precision(10), Recall(20), NDCG(20), Precision(20),  Recall(40), NDCG(40), Precision(40)]
     test_metrics = [Recall(5), NDCG(5),Precision(5), Recall(10), NDCG(10), Precision(10), Recall(20), NDCG(20), Precision(20),  Recall(40), NDCG(40), Precision(40)]
     TARGET = 'Recall@20'
