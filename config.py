@@ -8,7 +8,11 @@ CONFIG = {
     'gpu_id': "0",
     'note': 'some_note',
     'model': 'MIDGN',
+<<<<<<< HEAD
     'dataset_name': 'iFashion',
+=======
+    'dataset_name': 'food',
+>>>>>>> parent of 200557f (change)
     'task': 'tune',
     'eval_task': 'test',
 
@@ -22,7 +26,11 @@ CONFIG = {
     'sample': 'simple',
     'hard_window': [0.7, 1.0], # top 30%
     'hard_prob': [0.3, 0.3], # probability 0.8
+<<<<<<< HEAD
     'conti_train': 'log/iFashion/',
+=======
+    'conti_train': 'log/food/',
+>>>>>>> parent of 200557f (change)
 
     ## other settings
     'epochs': 150,
@@ -32,6 +40,10 @@ CONFIG = {
     'retry': 1,
 
     ## test path
+<<<<<<< HEAD
     'test':['log/iFashion']
+=======
+    'test':['log/food']
+>>>>>>> parent of 200557f (change)
 }
 
