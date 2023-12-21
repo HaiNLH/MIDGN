@@ -12,8 +12,7 @@ from config import CONFIG
 import torch_sparse
 from torch_sparse import SparseTensor
 from torch_sparse.mul import mul
-from torch.nn.parameter import Parameter
-
+from torch.nn.parameter import  Parameter
 import pdb
 def spspdot(indexA, valueA, indexB, valueB, m, k, coalesced=False):
     """Matrix product of two sparse tensors. Both input sparse matrices need to
@@ -88,18 +87,16 @@ class MIDGN(Model):
 
         self.epison = 1e-8
         self.cor_flag = 1
-        self.corDecay = 1e-2
+        self.corDecay = CONFIG['corDecay']
         self.n_factors = 4
-        # self.n_layers = 3
-        self.n_layers = 2
+        self.n_layers = 3
         self.num_layers = 2
         self.n_iterations = 2
         self.pick_level = 1e10
-        self.c_temp = 0.25
         self.beta = 0.04
-        self.topk_pos = 20 # topk users/bundles in contrastive loss
-        self.topk_neg = 20
-        self.device = device
+        self.n_layers = CONFIG['n_layers']
+        self.topk_pos = CONFIG['topk_pos']
+        self.topk_neg = CONFIG['topk_neg']
         emb_dim = int(int(self.embedding_size) / self.n_factors)
         self.items_feature_each = nn.Parameter(
             torch.FloatTensor(self.num_items, emb_dim)).to(device)
@@ -122,14 +119,6 @@ class MIDGN(Model):
         self.ui_mask = ui_graph_e[ui_graph_coo.row, ui_graph_coo.col]
         self.ui_e_mask = ui_graph[ui_graph_e_coo.row, ui_graph_e_coo.col]
         self.bi_graph, self.ui_graph = bi_graph, ui_graph
-        ub_sparse = torch.sparse_coo_tensor(ub_indices, ub_values, ub_graph.shape)
-        bi_sparse = torch.sparse_coo_tensor(bi_indices, bi_values, bi_graph.shape)
-
-        # user-item graph (items from bundles users had interacted with)
-        ubi_graph = self.get_ubi_non_weighted(ub_sparse, bi_sparse)
-        # item-item graph each cell is the number of times item i and j appeared at a same bundle 
-        self.ii_graph = bi_sparse.T @ bi_sparse 
-
         if ui_graph.shape == (self.num_users, self.num_items):
             # add self-loop
             atom_graph = sp.bmat([[sp.identity(ui_graph.shape[0]), ui_graph],
@@ -146,7 +135,6 @@ class MIDGN(Model):
         self.bi_atom_graph = to_tensor(laplace_transform(atom_graph)).to(device)
         self.dnns_atom = nn.ModuleList([nn.Linear(
             self.embedding_size, self.embedding_size) for l in range(self.num_layers)])
-        
         if bi_graph.shape == (self.num_bundles, self.num_items):
             tmp = bi_graph.tocoo()
             self.bi_graph_h = list(tmp.row)
@@ -154,6 +142,7 @@ class MIDGN(Model):
             self.bi_graph_shape = bi_graph.shape
         else:
             raise ValueError(r"raw_graph's shape is wrong")
+        # self.bi_graph = to_tensor(laplace_transform(bi_graph)).to(device)
 
         if ui_graph.shape == (self.num_users, self.num_items):
             # add self-loop
@@ -164,7 +153,6 @@ class MIDGN(Model):
             self.ui_graph_shape = ui_graph.shape
         else:
             raise ValueError(r"raw_graph's shape is wrong")
-        
         if ub_graph.shape == (self.num_users, self.num_bundles):
             # add self-loop
             tmp = ub_graph.tocoo()
@@ -174,24 +162,8 @@ class MIDGN(Model):
             self.ub_graph_shape = ub_graph.shape
         else:
             raise ValueError(r"raw_graph's shape is wrong")
-        
-        # if ubi_graph.shape == (self.num_users, self.num_items):
-        #     tmp = ubi_graph
-        #     self.ubi_graph_v = ubi_graph.values().to(device)
-        #     self.ubi_graph_h = list(ubi_graph.indices()[0])
-        #     self.ubi_graph_t = list(ubi_graph.indices()[1])
-        #     self.ubi_graph_shape = ubi_graph.shape
-        # else:
-        #     raise ValueError(r"ubi graph shape is wrong")
-        
-        # if ii_graph.shape == (self.num_items, self.num_items):
-        #     self.ii_graph_v = ii_graph.values().to(device)
-        #     self.ii_graph_h = list(ii_graph.indices()[0])
-        #     self.ii_graph_t = list(ii_graph.indices()[1])
-        #     self.ii_graph_shape = ii_graph.shape
-        # else:
-        #     raise ValueError(r"ii graph shape is wrong")
-        # print('finish generating bi, ui graph')
+        # self.ui_graph = to_tensor(laplace_transform(ui_graph)).to(device)
+        print('finish generating bi, ui graph')
 
         #  deal with weights
         bi_norm = sp.diags(1 / (np.sqrt((bi_graph.multiply(bi_graph)).sum(axis=1).A.ravel()) + 1e-8)) @ bi_graph
@@ -232,19 +204,8 @@ class MIDGN(Model):
             self.bundles_feature.data = F.normalize(
                 pretrain['bundles_feature'])
             
-        self.pos_u_ids, self.neg_u_ids = torch.arange(0, self.num_users).view(1, -1)\
-                                        .expand(self.topk_pos + self.topk_neg, self.num_users).flatten().view(-1, 1)\
-                                        .split([self.topk_pos * self.num_users, self.topk_neg * self.num_users])
-        self.pos_b_ids, self.neg_b_ids = torch.arange(0, self.num_bundles).view(1, -1)\
-                                        .expand(self.topk_pos + self.topk_neg, self.num_bundles).flatten().view(-1, 1)\
-                                        .split([self.topk_pos * self.num_bundles, self.topk_neg * self.num_bundles])
-        
-        ii_dense = self.ii_graph.to_dense()        
-        self.pos_item_set = [i.to_sparse_coo().indices().view(-1, ) for i in ii_dense]
-        self.neg_item_set = [i.to_sparse_coo().indices().view(-1, ) for i in (ii_dense==0)]
-
-        del ii_dense
-        
+        self.bi_norm_graph = self.get_propagation_graph(self.bi_graph)
+        self.ui_norm_graph = self.get_propagation_graph(self.ui_graph)
 
     def one_propagate(self, graph, A_feature, B_feature, dnns):
         # node dropout on graph
@@ -285,36 +246,47 @@ class MIDGN(Model):
         A_feature, B_feature = torch.split(
             all_features, (A_feature.shape[0], B_feature.shape[0]), 0)
         return A_feature, B_feature
+    
+    def get_propagation_graph(self, bi_graph, device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+        pro_graph = sp.bmat([[sp.csr_matrix((bi_graph.shape[0], bi_graph.shape[0])), bi_graph], 
+                             [bi_graph.T, sp.csr_matrix((bi_graph.shape[1], bi_graph.shape[1]))]])
+        
+        graph = pro_graph.tocoo()
+        vals = graph.data
+        pro_graph = sp.coo_matrix((vals, (graph.row, graph.col)), shape=graph.shape).tocsr()
+        norm_graph = laplace_transform(pro_graph)
+        return to_tensor(norm_graph).to(device)
+    
+    def light_propagate(self, propa_graph, A_feat, B_feat):
+        feats = torch.cat((A_feat, B_feat), 0)
+        sum_feat = feats
+        for i in range(self.n_layers):
+            feats = torch.spmm(propa_graph, feats)
+            sum_feat+=feats
+
+        A_feat, B_feat = sum_feat.split((A_feat.shape[0], B_feat.shape[0]), dim=0)
+        return A_feat, B_feat
 
     def propagate(self):
 
         # bi_value_sparse,ui_value_sparse=[],[]
-        # ub_indices = torch.tensor(np.array([self.ub_graph_h, self.ub_graph_t]), dtype=torch.long).to(self.device)
-        # bi_indices = torch.tensor(np.array([self.bi_graph_h, self.bi_graph_t]), dtype=torch.long).to(self.device)
-        # ui_indices = torch.tensor(np.array([self.ui_graph_h, self.ui_graph_t]), dtype=torch.long).to(self.device)
+        ub_indices = torch.tensor([self.ub_graph_h, self.ub_graph_t], dtype=torch.long).to(self.device)
+        bi_indices = torch.tensor([self.bi_graph_h, self.bi_graph_t], dtype=torch.long).to(self.device)
+        ui_indices = torch.tensor([self.ui_graph_h, self.ui_graph_t], dtype=torch.long).to(self.device)
 
-        atom_bundles_feature, atom_item_feature, self.bi_avalues = self._create_star_routing_embed_with_p(self.bi_graph_h,
-                                                                                                     self.bi_graph_t,
-                                                                                                     self.bundles_feature,
-                                                                                                     self.items_feature,
-                                                                                                     self.num_bundles,
-                                                                                                     self.num_items,
-                                                                                                     self.bi_graph_shape,
-                                                                                                     n_factors=1,
-                                                                                                     pick_=False)
+        #------------------BI-------------------#
+        atom_bundles_feature, atom_item_feature = self.light_propagate(self.bi_norm_graph, self.bundles_feature, self.items_feature)
 
-        atom_user_feature, atom_item_feature2, self.ui_avalues = self._create_star_routing_embed_with_p(self.ui_graph_h,
-                                                                                                   self.ui_graph_t,
-                                                                                                   self.users_feature,
-                                                                                                   self.items_feature,
-                                                                                                   self.num_users,
-                                                                                                   self.num_items,
-                                                                                                   self.ui_graph_shape,
-                                                                                                   n_factors=self.n_factors,
-                                                                                                   pick_=False)
+        #------------------UI-------------------#
+        atom_user_feature, atom_item_feature2 = self.light_propagate(self.ui_norm_graph, self.users_feature, self.items_feature)
+
+        #-----------------II--------------------
+        # atom_item3, atom_item4 = self.light_propagate()
 
         ui_avalues_e_list = []
         ui_avalues_list = []
+
+        items_feat = torch.cat((atom_item_feature, atom_item_feature2), dim=1)
 
         non_atom_users_feature, non_atom_bundles_feature = self.ub_propagate(
             self.non_atom_graph, atom_user_feature, atom_bundles_feature)
@@ -337,16 +309,12 @@ class MIDGN(Model):
                            users_feature]  # u_f --> batch_f --> batch_n_f
         bundles_embedding = [i[bundles] for i in bundles_feature]  # b_f --> batch_n_f
         pred = self.predict(users_embedding, bundles_embedding)
-        loss = self.regularize(users_embedding, bundles_embedding)
-        items = torch.tensor([np.random.choice(self.bi_graph[i].indices) for i in bundles.cpu()[:, 0]]).type(
-            torch.int64).to(self.device)
-        l_cor = ( self.contrastive_loss(users_feature[0], users_feature[1], self.topk_pos, self.topk_neg) \
-                + self.contrastive_loss(bundles_feature[0], bundles_feature[1], self.topk_pos, self.topk_neg, usr=False)) / 2
-        loss = loss
-        ii_loss = 0
-        ii_loss = self.cal_bpr_item(self.ii_graph, atom_item_feature)
-        print(ii_loss)
-        return pred, loss, l_cor * self.beta + ii_loss # side loss
+        L2loss = self.regularize(users_embedding, bundles_embedding)
+        L2loss = L2loss
+        # l_cor = ( self.contrastive_loss(users_feature[0], users_feature[1], self.topk_pos, self.topk_neg) \
+                # + self.contrastive_loss(bundles_feature[0], bundles_feature[1], self.topk_pos, self.topk_neg, usr=False)) / 2
+        # return pred, L2loss, self.beta * l_cor#-self.inten_score * 0.01  # self.cor_loss[0]#
+        return pred, L2loss, torch.zeros(1).to(self.device)[0]
 
     def regularize(self, users_feature, bundles_feature):
         users_feature_atom, users_feature_non_atom = users_feature  # batch_n_f
@@ -542,7 +510,94 @@ class MIDGN(Model):
 
         # return a (n_factors)-length list of laplacian matrix
         return A_factors, A_factors_t, D_col_factors, D_row_factors
+
+    def create_intent_loss(self, u_emb_global, u_emb_loc):
+        ui_gfactor_embeddings = torch.stack(torch.split(u_emb_global, int(u_emb_global.shape[1] / self.n_factors), 1),
+                                            dim=1)
+        #ui_gfactor_embeddings = F.normalize(ui_gfactor_embeddings, dim=2)
+        ui_lfactor_embeddings = torch.stack(torch.split(u_emb_loc, int(u_emb_loc.shape[1] / self.n_factors), 1), dim=1)
+        #ui_lfactor_embeddings = F.normalize(ui_lfactor_embeddings, dim=2)
+        intent_loss = torch.log(torch.exp((ui_gfactor_embeddings * ui_lfactor_embeddings).sum(dim=2)) / torch.exp(
+            torch.matmul(ui_gfactor_embeddings, torch.transpose(ui_lfactor_embeddings, 1, 2))).sum(dim=2)).mean(
+            dim=1).mean()
+
+        return intent_loss
+
+    def create_cor_loss(self, cor_u_embeddings):
+        cor_loss = torch.zeros(1).to(self.device)
+
+        if self.cor_flag == 0:
+            return cor_loss
+
+        ui_embeddings = cor_u_embeddings
+        ui_factor_embeddings = torch.split(ui_embeddings, int(ui_embeddings.shape[1] / self.n_factors), 1)
+
+        for i in range(0, self.n_factors - 1):
+            x = ui_factor_embeddings[i]
+            y = ui_factor_embeddings[i + 1]
+            cor_loss += self._create_distance_correlation(x, y)
+
+        cor_loss /= ((self.n_factors + 1.0) * self.n_factors / 2)
+
+        return cor_loss
+
+    def _create_distance_correlation(self, X1, X2):
+
+        def _create_centered_distance(X):
+            '''
+                Used to calculate the distance matrix of N samples
+            '''
+            # calculate the pairwise distance of X
+            # .... A with the size of [batch_size, embed_size/n_factors]
+            # .... D with the size of [batch_size, batch_size]
+            # X = tf.math.l2_normalize(XX, axis=1)
+            r = torch.sum(torch.square(X), 1, keepdims=True)
+            D = torch.sqrt(
+                torch.maximum(r - 2 * torch.matmul(X, X.t()) + r.t(), torch.tensor(0.0).to(self.device)) + 1e-8)
+
+            # # calculate the centered distance of X
+            # # .... D with the size of [batch_size, batch_size]
+            D = D - torch.mean(D, dim=0, keepdims=True) - torch.mean(D, dim=1, keepdims=True) \
+                + torch.mean(D)
+            return D
+
+        def _create_distance_covariance(D1, D2):
+            # calculate distance covariance between D1 and D2
+            n_samples = torch.tensor(D1.shape[0]).type(torch.float32)
+            dcov = torch.sqrt(
+                torch.maximum(torch.sum(D1 * D2) / (n_samples * n_samples), torch.tensor(0.0).to(self.device)) + 1e-8)
+            # dcov = torch.sqrt(torch.maximum(torch.sum(D1 * D2)) / n_samples)
+            return dcov
+
+        D1 = _create_centered_distance(X1)
+        D2 = _create_centered_distance(X2)
+
+        dcov_12 = _create_distance_covariance(D1, D2)
+        dcov_11 = _create_distance_covariance(D1, D1)
+        dcov_22 = _create_distance_covariance(D2, D2)
+
+        # calculate the distance correlation
+        dcor = dcov_12 / (torch.sqrt(torch.maximum(dcov_11 * dcov_22, torch.tensor(0.0).to(self.device))) + 1e-10)
+        # return tf.reduce_sum(D1) + tf.reduce_sum(D2)
+        return dcor
     
+
+    def cor_loss(self, pos, aug):
+        pes = pes[:, 0, :]
+        aug = aug[:, 0, :]
+
+        pes = F.normalize(pos, p=2, dim=1)
+        aug = F.normalize(aug, p=2, dim=1)
+
+        sim = torch.sum(pes * aug, dim=1)
+        ttl_score = torch.matmul(pos, aug.T)
+
+        pos_score = torch.exp(sim / self.c_temp)
+        neg_score = torch.sum(torch.exp(ttl_score), dim=1)
+
+        return -torch.mean(torch.log(pos_score / (neg_score - pos_score)))
+    
+
     def contrastive_loss(self, eck, vck, topk_pos, topk_neg, usr=True, threshold=5e-1):
         '''
         calculate for all users/bundles
@@ -556,122 +611,8 @@ class MIDGN(Model):
         sim_mat = torch.matmul(eck, vck.T)
         pos_set = torch.topk(sim_mat, k=topk_pos, dim=1)
         neg_set = torch.topk(sim_mat, k=topk_neg, dim=1, largest=False)
-        
-        # contain overlap pairs
-        pos_thres_mask = pos_set.values > threshold
-        neg_thres_mask = neg_set.values < threshold
 
-        pos_score = torch.sum(torch.exp(pos_set.values * pos_thres_mask), dim=1)
-        neg_score = torch.sum(torch.exp(neg_set.values * neg_thres_mask), dim=1)
-
-        '''
-        eliminate overlap pairs in pos/neg sets
-        '''
-        # pos_ids = torch.cat(pos_set.indices.split(1, dim=1), dim=0)
-        # neg_ids = torch.cat(neg_set.indices.split(1, dim=1), dim=0)
-
-        # if usr:
-        #     pos_pairs = torch.cat([self.pos_u_ids, pos_ids],dim=1).sort(dim=1).values.unique(dim=0)
-        #     neg_pairs = torch.cat([self.neg_u_ids, neg_ids],dim=1).sort(dim=1).values.unique(dim=0)
-        # else:
-        #     pos_pairs = torch.cat([self.pos_b_ids, pos_ids],dim=1).sort(dim=1).values.unique(dim=0)
-        #     neg_pairs = torch.cat([self.neg_b_ids, neg_ids],dim=1).sort(dim=1).values.unique(dim=0)
-
-        # pos_idx, neg_idx = pos_pairs.T, neg_pairs.T
-        # pos_mask_val, neg_mask_val = torch.ones(pos_idx.shape[1]), torch.ones(neg_idx.shape[1])
-        # pos_mask, neg_mask = torch.sparse_coo_tensor(pos_idx, pos_mask_val, sim_mat.shape).to_dense(), \
-        #                      torch.sparse_coo_tensor(neg_idx, neg_mask_val, sim_mat.shape).to_dense()
-        
-        # overlap_pos_neg = pos_mask * neg_mask
-
-        # pos_sim = sim_mat * (pos_mask - overlap_pos_neg)
-        # neg_sim = sim_mat * (neg_mask - overlap_pos_neg)
-
-        # pos_score = torch.sum(torch.exp(pos_sim), dim=1)
-        # neg_score = torch.sum(torch.exp(neg_sim), dim=1)
+        pos_score = torch.sum(torch.exp(pos_set.values), dim=1)
+        neg_score = torch.sum(torch.exp(neg_set.values), dim=1)
         c_loss = -torch.mean(torch.log(pos_score / neg_score))
-
         return c_loss
-
-    def get_ubi_weighted(self, ub, bi):
-        '''
-        ub : user-bunlde coo-graph
-        bi : bundle-item coo-graph
-
-        return: ubi user-item coo-graph through bundle 
-        each cell [i,j] is the time user i interact with item j
-        '''
-        ubi = ub @ bi
-        return ubi
-
-    def get_ubi_non_weighted(self, ub, bi):
-        '''
-        ub : user-bunlde coo-graph
-        bi : bundle-item coo-graph
-
-        return: ubi user-item coo-graph through bundle 
-        each cell [i,j] == 0 or 1
-        '''
-        temp = ub @ bi
-        idx = temp.indices()
-        val = torch.ones_like(temp.values())
-        ubi = torch.sparse_coo_tensor(indices=idx, values=val, size=temp.shape)
-        return ubi
-       
-    def load_ii_pairs(self, batch_size, ii_index):
-        '''
-        load item-item pair for BPR loss training
-        params:
-        ii_index: [ids,
-                   positive_ids]
-
-        return:[ids, 
-                positive_ids, 
-                negative_ids]
-        '''
-        # TODO: construct pos_set in __init__()
-        pos_item_set = None
-        neg_ids = []
-        id_set = torch.randint(0, ii_index.shape[1], (batch_size, ))
-        batch_idx = ii_index.T[id_set].T.tolist()
-        
-        neg_ids = []
-        for i in batch_idx[0]:
-            if self.neg_item_set[i].shape == (1, 0):
-                neg_id = 0
-            else:
-                neg_id = np.random.choice(self.neg_item_set[i])
-            neg_ids.append(neg_id)
-
-        batch_idx.append(neg_ids)
-        return batch_idx
-    
-    def cal_bpr_item(self, ii_graph, item_feat, mode='mean'):
-        '''
-        calculate BPR loss for item-item
-        '''
-        cur_id, pos_id, neg_id = self.load_ii_pairs(4096, ii_graph.indices())
-        cur_feat = item_feat[cur_id]
-        pos_feat = item_feat[pos_id]
-        neg_feat = item_feat[neg_id]
-
-        pos_score = cur_feat @ pos_feat.T
-        neg_score = cur_feat @ neg_feat.T
-
-        loss_bpr = -torch.log(torch.sigmoid(pos_score - neg_score))
-
-        if mode=='mean':
-            loss_bpr = torch.mean(loss_bpr)
-        elif mode=='sum':
-            loss_bpr = torch.sum(loss_bpr)
-        else:
-            raise ValueError(r"invalid mode i-i bpr")   
-        return loss_bpr
-    
-    def cal_C_item(self, ii_mat):
-        val = torch.sum(ii_mat, dim=1).view(-1, )
-        idx = [list(range(0, ii_mat.shape[0])),
-               list(range(0, ii_mat.shape[0]))]
-        Deg_mat = torch.sparse_coo_tensor(idx, val, ii_mat.shape)
-        normD = 1/torch.sqrt(Deg_mat)
-        return normD @ ii_mat @ normD
