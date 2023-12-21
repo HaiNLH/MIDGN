@@ -13,7 +13,7 @@ CONFIG = {
     'eval_task': 'test',
 
     ## optimal hyperparameters
-    'lrs': [1e-3],
+    'lrs': [1e-2],
     'message_dropouts': [0.3],
     'node_dropouts': [0],
     'decays': [1e-7],
@@ -25,13 +25,18 @@ CONFIG = {
     'conti_train': 'log/Steam/',
 
     ## other settings
-    'epochs': 150,
+    'epochs': 200,
     'early': 50,
     'log_interval': 5,
     'test_interval': 5,
     'retry': 1,
 
     ## test path
-    'test':['log/Steam']
+    'test':['log/Steam'],
+    'batch_size_train': 2048,
+    'batch_size_test': 4096,
+    'n_layers': 2,
+    'corDecay': 1e-2,
+    'topk_pos': 30,
+    'topk_neg': 30,
 }
-
