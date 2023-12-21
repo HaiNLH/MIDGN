@@ -117,4 +117,3 @@ class Model(nn.Module):
         just for testing, compute scores of all bundles for `users` by `propagate_result`
         '''
         raise NotImplementedError
-
