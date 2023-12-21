@@ -25,4 +25,3 @@ def train(model, epoch, loader, optim, device, CONFIG, loss_func):
                 100. * (i+1) / len(loader), loss))
     print('Train Epoch: {}: time = {:d}s'.format(epoch, int(time()-start)))
     return loss
-

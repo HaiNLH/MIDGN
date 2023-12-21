@@ -90,7 +90,8 @@ class MIDGN(Model):
         self.cor_flag = 1
         self.corDecay = 1e-2
         self.n_factors = 4
-        self.n_layers = 3
+        # self.n_layers = 3
+        self.n_layers = 2
         self.num_layers = 2
         self.n_iterations = 2
         self.pick_level = 1e10
